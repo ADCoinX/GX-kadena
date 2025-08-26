@@ -61,7 +61,7 @@ GuardianX Kadena Validator is a lightweight wallet risk validator for the Kadena
 
 ## 👥 Team
 - **Muhammad Yusri Adib** – Founder, ADCX Lab (Blockchain Safety Evangelist)  
-  - [LinkedIn](https://www.linkedin.com/in/muhammad-yusri-adib)  
+  - [LinkedIn](http://linkedin.com/in/yusri-adib-455aa8b7)  
   - [Twitter](https://twitter.com/AdCoinMy)  
   - [Telegram](https://t.me/ADCoinhelpline)  
   - 📧 admin@autodigitalcoin.com  
