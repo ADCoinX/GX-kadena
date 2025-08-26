@@ -19,7 +19,7 @@ header {
     background: var(--surface);
 }
 #logo {
-    width: 820px;
+    width: 300px;
     margin-bottom: 0.5em;
 }
 h1 {
