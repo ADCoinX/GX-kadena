@@ -17,3 +17,10 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+          - name: Run Sonar Scanner
+  env:
+    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    SONAR_PROJECT_KEY: your_project_key
+    SONAR_ORGANIZATION: your_organization_key
+  run: sonar-scanner
