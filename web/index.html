@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GuardianX | Kadena Wallet Risk Validator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <img src="static/GX_Logo.PNG" alt="GuardianX Logo" id="logo">
+        <h1>GuardianX Kadena Validator</h1>
+    </header>
+    <main>
+        <form id="validate-form">
+            <select name="chain" id="chain-select">
+                <option value="kadena">Kadena</option>
+                <option value="xrpl">XRPL (stub)</option>
+            </select>
+            <input type="text" name="address" id="address-input" placeholder="Wallet Address" maxlength="64" required>
+            <label>
+                <input type="checkbox" name="check_rwa" id="check-rwa">
+                Check RWA holdings
+            </label>
+            <button type="submit">Validate</button>
+        </form>
+        <section id="result-panel" class="hidden">
+            <div id="score-badge"></div>
+            <div id="score-bar"></div>
+            <div id="flags-list"></div>
+            <div id="sources-list"></div>
+            <a id="xml-download" href="#" download="iso20022.xml">Download ISO20022 XML</a>
+            <div id="rwa-panel"></div>
+        </section>
+    </main>
+    <footer>
+        <small>GuardianX risk assessment is not financial advice.</small>
+    </footer>
+    <script src="script.js"></script>
+</body>
+</html>
