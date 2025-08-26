@@ -1,18 +1,41 @@
-"""Persistent logging service."""
-from sqlmodel import Session, create_engine
-from app.models import Log
+"""Persistent logging service (SQLModel)."""
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlmodel import SQLModel, Session, create_engine, select, func
+from app.models import Log  # pastikan Log extends SQLModel
 from app.settings import settings
 
-engine = create_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})
+# Default ke SQLite local jika env tak set (selamat di Render)
+DATABASE_URL: str = getattr(settings, "DATABASE_URL", "") or "sqlite:////data/gx.db"
 
-def setup_logging():
-    """Create logs table if not exists."""
-    Log.metadata.create_all(engine)
+# SQLite perlukan connect_args ni; untuk Postgres tak perlu
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,
+)
 
-def log_event(event: str, details: str):
-    """Persist log event."""
-    session = Session(engine)
-    log = Log(event=event, details=details, ts="")
-    session.add(log)
-    session.commit()
-    session.close()
+def setup_logging() -> None:
+    """Create tables if not exists."""
+    SQLModel.metadata.create_all(engine)
+
+def log_event(event: str, details: str = "") -> None:
+    """Persist a log event; never crash the request."""
+    try:
+        with Session(engine) as session:
+            row = Log(event=event, details=details, ts=datetime.now(timezone.utc))
+            session.add(row)
+            session.commit()
+    except Exception:
+        # Jangan pecahkan request; cukup swallow untuk MVP
+        pass
+
+def count_validations() -> int:
+    """Return total 'validation' events."""
+    try:
+        with Session(engine) as session:
+            stmt = select(func.count(Log.id)).where(Log.event == "validation")
+            return int(session.exec(stmt).one())
+    except Exception:
+        return 0
