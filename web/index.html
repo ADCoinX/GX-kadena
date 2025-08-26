@@ -7,29 +7,45 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header>
-    <img src="/static/GX_Logo.png" alt="GuardianX Logo" id="logo" />
+  <!-- HERO / BRAND -->
+  <header class="hero">
+    <div class="brand">
+      <!-- Pastikan fail ini wujud di: web/static/GX_Logo.png -->
+      <img src="/static/GX_Logo.png" alt="GuardianX Logo" class="logo" />
+    </div>
     <h1>GuardianX Kadena Validator</h1>
   </header>
 
   <main>
+    <!-- FORM -->
     <form id="validate-form" autocomplete="off" novalidate>
+      <label for="chain-select" class="sr-only">Chain</label>
       <select name="chain" id="chain-select">
         <option value="kadena" selected>Kadena</option>
         <option value="xrpl">XRPL (stub)</option>
       </select>
 
-      <input type="text" name="address" id="address-input"
-             placeholder="Wallet Address" maxlength="64" required />
+      <label for="address-input" class="sr-only">Wallet Address</label>
+      <input
+        type="text"
+        name="address"
+        id="address-input"
+        placeholder="Wallet Address (e.g. k:abcdef...)"
+        maxlength="128"
+        required
+        inputmode="latin"
+        spellcheck="false"
+      />
 
-      <label class="chk">
+      <label class="chk" for="check-rwa">
         <input type="checkbox" name="check_rwa" id="check-rwa" />
         <span>Check RWA holdings</span>
       </label>
 
-      <button type="submit">Validate</button>
+      <button type="submit" id="btn-validate">Validate</button>
     </form>
 
+    <!-- RESULT -->
     <section id="result-panel" class="hidden">
       <div id="score-badge"></div>
       <div id="score-bar"></div>
@@ -38,6 +54,11 @@
       <a id="xml-download" href="#" download="iso20022.xml">Download ISO20022 XML</a>
       <div id="rwa-panel"></div>
     </section>
+
+    <!-- STATS / TRACTION -->
+    <section id="stats-panel">
+      <p id="stats-text">Loading traction…</p>
+    </section>
   </main>
 
   <footer>
@@ -45,5 +66,8 @@
   </footer>
 
   <script src="/static/script.js"></script>
+  <noscript>
+    <p style="text-align:center;color:#aaa">Please enable JavaScript to use GuardianX.</p>
+  </noscript>
 </body>
 </html>
