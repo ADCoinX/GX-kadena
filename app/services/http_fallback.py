@@ -1,6 +1,7 @@
-"""Failover HTTP client with retry, timeout, simple circuit, and TTL cache."""
+"""Failover HTTP client with retry, timeout, TTL cache (tx/age modes)."""
 import os, time, json, httpx
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
+from datetime import datetime, timezone
 
 # Tunable via ENV
 TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SEC", "4"))
@@ -9,38 +10,59 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 _cache: dict[str, tuple[int, float]] = {}   # key -> (val, ts)
 
-# keys lazim dari explorer / API
-POSSIBLE_KEYS = ["value", "txCount", "tx_count", "count",
-                 "firstSeen", "first_seen", "ageDays", "age_days", "age", "days"]
-
-def _extract_int(x: Any) -> Optional[int]:
-    """Cuba dapatkan integer dari pelbagai bentuk JSON."""
-    if x is None:
-        return None
-    if isinstance(x, bool):
-        return int(x)
-    if isinstance(x, (int, float)):
-        return int(x)
-    if isinstance(x, str):
-        # cuba parse nombor yang muncul
-        digits = "".join(ch for ch in x if ch.isdigit())
-        return int(digits) if digits else None
-    if isinstance(x, list):
-        # ramai explorer pulangkan senarai tx → guna panjang
-        return len(x)
-    if isinstance(x, dict):
-        # direct keys
-        for k in POSSIBLE_KEYS:
-            if k in x:
-                got = _extract_int(x[k])
-                if got is not None:
-                    return got
-        # cuba selongkar nested
-        for v in x.values():
-            got = _extract_int(v)
-            if got is not None:
-                return got
+def _to_int(v: Any) -> Optional[int]:
+    if v is None: return None
+    if isinstance(v, bool): return int(v)
+    if isinstance(v, (int, float)): return int(v)
+    if isinstance(v, str):
+        s = "".join(ch for ch in v if ch.isdigit())
+        return int(s) if s else None
     return None
+
+def _age_days_from_first_seen(v: Any) -> Optional[int]:
+    # support ISO string "2023-01-01T..." or epoch ms/seconds
+    try:
+        if isinstance(v, (int, float)):  # epoch ms or s
+            ts = float(v) / (1000.0 if v > 10_000_000_000 else 1.0)
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        elif isinstance(v, str):
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        else:
+            return None
+        days = (datetime.now(timezone.utc) - dt).days
+        return max(days, 0)
+    except Exception:
+        return None
+
+def _extract_tx_count(obj: Any) -> Optional[int]:
+    # common: txCount / transactions / count / list length
+    if obj is None: return None
+    if isinstance(obj, list): return len(obj)
+    if isinstance(obj, dict):
+        for k in ("txCount", "transactions", "tx_count", "count"):
+            if k in obj:
+                n = _to_int(obj[k])
+                if n is not None: return n
+        # dive shallow
+        for v in obj.values():
+            n = _extract_tx_count(v)
+            if n is not None: return n
+    # primitives
+    return _to_int(obj)
+
+def _extract_age_days(obj: Any) -> Optional[int]:
+    if obj is None: return None
+    if isinstance(obj, dict):
+        for k in ("firstSeen", "first_seen", "ageDays", "age_days", "age", "days"):
+            if k in obj:
+                n = _age_days_from_first_seen(obj[k]) if "first" in k else _to_int(obj[k])
+                if n is not None: return n
+        # dive shallow
+        for v in obj.values():
+            n = _extract_age_days(v)
+            if n is not None: return n
+    # primitives (already days)
+    return _to_int(obj)
 
 def _get_json(url: str, params: dict) -> Optional[Any]:
     with httpx.Client(timeout=TIMEOUT) as c:
@@ -54,39 +76,35 @@ def _get_json(url: str, params: dict) -> Optional[Any]:
             print(f"[fallback] {url} -> status {r.status_code}")
     return None
 
-def try_sources(sources: list[str], params: dict, ttl: int = 900) -> int:
+def try_sources(sources: list[str], params: dict, ttl: int = 900, mode: str = "tx") -> int:
     """
-    Cuba sumber-sumber dengan fallback + cache.
-    - `sources`: senarai URL; boleh mengandungi {address} yang telah diformat di adapter,
-                 atau guna `params={'address': 'k:...'}` kalau API perlukan query.
-    - return integer (0 jika semua gagal).
+    mode="tx"  -> extract transaction count
+    mode="age" -> extract age in days (from firstSeen/age* fields)
     """
-    # Cache key unik ikut URL list + params
-    cache_key = json.dumps({"s": sources, "p": params}, sort_keys=True)
+    cache_key = json.dumps({"s": sources, "p": params, "m": mode}, sort_keys=True)
     now = time.time()
-    if cache_key in _cache:
-        val, ts = _cache[cache_key]
-        if now - ts < ttl:
-            return val
+    if cache_key in _cache and now - _cache[cache_key][1] < ttl:
+        return _cache[cache_key][0]
+
+    extractor = _extract_tx_count if mode == "tx" else _extract_age_days
 
     for raw in sources:
-        url = raw  # andaian adapter dah format {address} kalau perlu
+        url = raw
         for _ in range(max(1, RETRY_PER_SOURCE)):
             try:
                 data = _get_json(url, params)
                 if data is None:
                     continue
-                val = _extract_int(data)
+                val = extractor(data)
                 if val is not None:
-                    _cache[cache_key] = (int(val), now)
-                    return int(val)
+                    val = int(val)
+                    _cache[cache_key] = (val, now)
+                    return val
             except Exception as e:
                 if DEBUG:
                     print(f"[fallback] {url} exception: {e}")
                 continue
-        # kecilkan beban sebelum cuba source seterusnya
         time.sleep(0.05)
 
-    # semua gagal
     _cache[cache_key] = (0, now)
     return 0
