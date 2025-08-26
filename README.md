@@ -71,14 +71,49 @@ GuardianX Kadena Validator is a lightweight wallet risk validator for the Kadena
 
 ---
 
-## 💰 Budget (6-Month Grant Proposal)
-Requested: **USD 70,000** (6 months)  
-- Founder salary (Blockchain Safety & Development): USD 12,000  
-- Co-Founder salary (Compliance & Governance): USD 6,000  
-- Developer part-time hire + security audits: USD 25,000  
-- Infrastructure (Render, APIs, CI/CD, monitoring): USD 10,000  
-- R&D (multi-chain support, ML risk models): USD 10,000  
-- Community, education & documentation: USD 7,000  
+## 💰 Budget Breakdown (12 Months – $100,000)
+
+| Category                        | Amount (USD) | Details |
+|---------------------------------|--------------|---------|
+| **Founder (CEO/Tech Lead)**     | $18,000      | $1,500/month – backend, infra, AI integration, Kadena API |
+| **Co-Founder (Ops/Compliance)** | $18,000      | $1,500/month – ISO20022 compliance, reporting, outreach |
+| **Developer (Part-time)**       | $24,000      | $2,000/month – RWA checker, dashboard, frontend |
+| **AI/ML Specialist (freelance)**| $12,000      | ML tuning, hybrid scoring refinement |
+| **Infrastructure & Tools**      | $10,000      | Hosting (Render/DB), SonarQube, monitoring |
+| **Security & Audit**            | $8,000       | Penetration test, code audit, compliance review |
+| **Community & Outreach**        | $6,000       | Docs, SDK, workshops, Kadena community integration |
+| **Legal & Compliance**          | $4,000       | Entity ops, licensing, ISO alignment |
+
+**Total: $100,000 (milestone-based in KDA)**  
+
+---
+
+## 📅 Roadmap (12 Months)
+
+| Quarter | Milestone             | Deliverables | Lead |
+|---------|-----------------------|--------------|------|
+| **Q1 (Months 1–3)**  | Core MVP Release   | Wallet validation API, failover infra, SonarQube setup | Founder (Tech) |
+| **Q2 (Months 4–6)**  | Compliance & ISO   | ISO20022 XML export, audit-ready logs, docs draft | Co-Founder (Compliance) |
+| **Q3 (Months 7–9)**  | RWA Integration    | RWA checker live integration, dashboard UI, developer SDK | Founder (Tech) + Dev |
+| **Q4 (Months 10–12)**| AI + Ecosystem     | AI/ML hybrid scoring, Kadena workshops, ecosystem outreach | Founder (Tech: AI), Co-Founder (Outreach) |
+
+---
+
+## 👥 Role Responsibilities  
+
+**Founder (CEO / Tech Lead)**  
+- Lead system architecture & API integration (FastAPI + Kadena Explorer)  
+- Implement hybrid ML/rule-based risk engine  
+- Oversee security middleware & SonarQube CI/CD  
+- Manage RWA checker + technical milestones  
+- Coordinate developer team  
+
+**Co-Founder (Ops / Compliance Lead)**  
+- Handle ISO20022 XML export requirements & audit documentation  
+- Manage compliance narrative (CBDC/RWA alignment)  
+- Liaise with grant reviewers, community, Kadena ecosystem teams  
+- Lead outreach: docs, workshops, LinkedIn/Twitter presence  
+- Oversee legal & regulatory readiness  
 
 ---
 
@@ -103,14 +138,6 @@ uvicorn app.main:app --reload --port 8080
 ## 🔗 Demo
 - Live Validator: [https://gx-kadena.onrender.com](https://gx-kadena.onrender.com)
 - GitHub Repo: [https://github.com/ADCoinX/GX-kadena](https://github.com/ADCoinX/GX-kadena)
-
----
-
-## 🛣 Roadmap (6 Months)
-- Month 1–2: Core Kadena wallet validation + logging  
-- Month 3–4: AI risk engine + RWA integration  
-- Month 5: Multi-chain support (XRPL, Ethereum)  
-- Month 6: Final audit + documentation + public launch
 
 ---
 
