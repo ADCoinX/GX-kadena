@@ -29,7 +29,7 @@ header {
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 #logo {
-  width: 220px;
+  width: 100px;
   margin-bottom: 0.6em;
   filter: drop-shadow(0 4px 14px rgba(0,0,0,0.4));
 }
