@@ -11,7 +11,7 @@
   <header class="hero">
     <div class="brand">
       <!-- Pastikan fail ini wujud di: web/static/GX_Logo.png -->
-<img src="/static/GX_Logo.png" alt="GuardianX Logo" id="logo" width="120" height="auto">
+      <img src="/static/GX_Logo.png" alt="GuardianX Logo" id="logo" width="120" height="auto">
     </div>
     <h1>GuardianX Kadena Validator</h1>
   </header>
@@ -32,8 +32,11 @@
         id="address-input"
         placeholder="Wallet Address (e.g. k:abcdef...)"
         maxlength="128"
+        pattern="^k:[0-9a-fA-F]{64}$"
+        title="Format Kadena: k: + 64 hex chars"
         required
         inputmode="latin"
+        autocapitalize="off"
         spellcheck="false"
       />
 
@@ -48,7 +51,7 @@
     <!-- RESULT -->
     <section id="result-panel" class="hidden">
       <div id="score-badge"></div>
-      <div id="score-bar"></div>
+      <div id="score-bar"><div class="fill" id="score-fill"></div></div>
       <div id="flags-list"></div>
       <div id="sources-list"></div>
       <a id="xml-download" href="#" download="iso20022.xml">Download ISO20022 XML</a>
@@ -69,5 +72,13 @@
   <noscript>
     <p style="text-align:center;color:#aaa">Please enable JavaScript to use GuardianX.</p>
   </noscript>
+
+  <!-- Optional: sr-only util -->
+  <style>
+    .sr-only{
+      position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+      clip:rect(0,0,0,0);white-space:nowrap;border:0;
+    }
+  </style>
 </body>
 </html>
