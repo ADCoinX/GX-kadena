@@ -96,34 +96,35 @@ git clone https://github.com/ADCoinX/GX-kadena.git
 cd GX-kadena
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8080
+```
 
 ---
 
----
 ## 🔗 Demo
 - Live Validator: [https://gx-kadena.onrender.com](https://gx-kadena.onrender.com)
 - GitHub Repo: [https://github.com/ADCoinX/GX-kadena](https://github.com/ADCoinX/GX-kadena)
 
 ---
+
 ## 🛣 Roadmap (6 Months)
 - Month 1–2: Core Kadena wallet validation + logging  
 - Month 3–4: AI risk engine + RWA integration  
 - Month 5: Multi-chain support (XRPL, Ethereum)  
 - Month 6: Final audit + documentation + public launch
+
 ---
+
 ## 📌 Use Cases
 - Exchanges → Wallet risk screening before onboarding  
 - Regulators → ISO 20022 XML export for audit trail  
 - Institutions → RWA token compliance checks  
 - Community → Safer crypto transactions
 
+---
 
 📜 Disclaimer
 
-GuardianX risk assessment is not financial advice. This MVP is for educational and research purposes only. Outputs should be combined with due diligence before financial or compliance
-
-## 📜 License
-MIT License © 2025 ADCX Lab
+GuardianX risk assessment is not financial advice. This MVP is for educational and research purposes only. Outputs should be combined with due diligence before financial or compliance.
 
 ## 📜 License
 MIT License © 2025 ADCX Lab
