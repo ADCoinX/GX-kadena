@@ -24,7 +24,7 @@ def log_event(event: str, details: str = "") -> None:
     """Persist a log event; never crash the request."""
     try:
         with Session(engine) as session:
-            row = Log(event=event, details=details, ts=datetime.now(timezone.utc))
+            row = Log(event=event, details=details, ts=datetime.now(timezone.utc).isoformat())
             session.add(row)
             session.commit()
     except Exception:
