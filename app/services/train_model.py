@@ -1,21 +1,13 @@
-# app/services/train_model.py
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.datasets import make_classification
-import joblib, os
+import pandas as pd
+from sklearn.svm import SVC
+import joblib
 
-def train_and_save_model(path="app/data/models/model_v1.pkl"):
-    # Buat data dummy
-    X_train, y_train = make_classification(
-        n_samples=500, n_features=5, n_classes=2, random_state=42
-    )
-    # Train model
-    model = RandomForestClassifier(n_estimators=50, random_state=42)
-    model.fit(X_train, y_train)
+df = pd.read_csv("app/data/models/data.csv")
+print(df.head())
 
-    # Pastikan folder ada
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    joblib.dump(model, path)
-    print(f"✅ Model siap disimpan di: {path}")
+X = df.drop('target', axis=1)
+y = df['target']
 
-if __name__ == "__main__":
-    train_and_save_model()
+model = SVC()
+model.fit(X, y)
+joblib.dump(model, "app/data/models/model_v1.pkl")
