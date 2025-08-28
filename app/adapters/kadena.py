@@ -1,3 +1,4 @@
+"""Kadena adapter for address info (real explorer API)."""
 import time
 from app.services.http_fallback import try_sources
 
