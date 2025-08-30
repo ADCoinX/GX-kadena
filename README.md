@@ -55,8 +55,55 @@ GuardianX Kadena Validator is a lightweight wallet risk validator for the Kadena
 - No private keys stored (public address only)  
 - Requests proxied with failover APIs (resilient)  
 - Logs anonymized (event count only, no PII)  
-- ISO 20022 XML compliant with ISO/TC 307  
+- ISO 20022 XML compliant with ISO/TC 307
 
+---
+## 🔐 Security & Threat Model
+
+At ADCX Lab, safety isn’t an afterthought — it’s built in from day one.  
+Even in the demo stage, we evaluate potential risks and mitigation paths.
+
+### 📊 Threat Matrix – GX-Kadena
+
+| Threat / Attack Vector        | Likelihood | Impact | Notes & Mitigation |
+|-------------------------------|------------|--------|---------------------|
+| **DDoS / API Spam**           | High       | Medium | Rate limiting, Cloudflare, fallback nodes |
+| **API Dependency Abuse**      | High       | Medium | Multiple API keys, caching, fallback APIs |
+| **Phishing / Clone Website**  | Medium     | High   | Official domain, SSL cert, verified links |
+| **XSS / Input Injection**     | Medium     | Medium | Strict input validation & sanitization |
+| **AI Risk Engine Bypass**     | Low/Med    | Medium | Hybrid rules + AI, manual blacklist |
+| **Blacklist Poisoning**       | Low/Med    | Low/Med| Moderated entries, hash verification |
+| **ISO 20022 Export Injection**| Low        | Medium | XML schema validation, sanitize input |
+| **Google Sheets Log Abuse**   | Medium     | Low/Med| Env-secured keys, migrate to DB w/ auth |
+
+### ⚖️ Summary
+- Highest risk (short-term): **DDoS / API spam** and **Phishing clones**  
+- Medium risk: **XSS, API dependency abuse, AI bypass**  
+- Lower risk: **ISO export injection, log poisoning**  
+- **Mitigation plan**: Rate limiting, SSL cert, schema validation, multi-API redundancy, DB migration
+
+---
+## 🚀 Project Status – GX-Kadena
+
+**Live Demo:** https://gx-kadena.onrender.com  
+**Repository:** https://github.com/ADCoinX/GX-kadena  
+
+### ✅ Completed
+- Kadena wallet validation using Chainweb public APIs
+- ISO 20022 XML export module
+- Risk scoring logic (hybrid rule + AI concept)
+- Public demo deployment (Render.com)
+
+### 🚧 In Progress
+- API fallback nodes for reliability
+- Uptime/error monitoring (to detect downtime faster)
+- Enhanced validation rules for wallet activity
+
+### 🔜 Planned
+- Rate limiting & DDoS protection
+- Official domain setup + anti-phishing measures
+- Integration with community-driven blacklist
+- Future RWA compliance checks (long-term vision)
 ---
 
 ## 👥 Team
