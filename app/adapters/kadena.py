@@ -1,24 +1,22 @@
-"""Kadena adapter for address info (real explorer API)."""
+"""Kadena adapter for address info (real explorer API, all live data)."""
 import time
 from app.services.http_fallback import try_sources
 
 def get_tx_count(address: str) -> int:
-    """Get Kadena tx count with failover, sum from all chains."""
+    """Get Kadena tx count with failover, sum from all chains (LIVE DATA)."""
     sources = [
         f"https://explorer.chainweb.com/mainnet/account/{address}"
     ]
     data = try_sources(sources, {})
     if isinstance(data, dict):
-        # If multiple chains
         if "chains" in data and isinstance(data["chains"], list):
             return sum(int(chain.get("transactions", 0)) for chain in data["chains"])
-        # If single chain or no chains key
         elif "transactions" in data:
             return int(data.get("transactions", 0))
     return 0
 
 def get_address_age_days(address: str) -> int:
-    """Get Kadena address age in days (earliest firstSeen from all chains)."""
+    """Get Kadena address age in days (earliest firstSeen from all chains, LIVE DATA)."""
     sources = [
         f"https://explorer.chainweb.com/mainnet/account/{address}"
     ]
@@ -43,7 +41,7 @@ def get_address_age_days(address: str) -> int:
     return 0
 
 def get_balance(address: str) -> float:
-    """Get Kadena balance across all chains."""
+    """Get Kadena balance across all chains (LIVE DATA)."""
     sources = [
         f"https://explorer.chainweb.com/mainnet/account/{address}"
     ]
@@ -65,8 +63,22 @@ def get_balance(address: str) -> float:
 
 def get_related_address_count(address: str) -> int:
     """
-    Dummy implementation: Kadena explorer API does not directly provide related address count.
-    You may implement logic based on transaction history, or return 0 for now.
+    Get number of unique related addresses (LIVE DATA).
+    Will count unique addresses interacted with (senders/recipients) from all chain transactions.
     """
-    # TODO: Replace this with real logic if you have another API/source.
-    return 0
+    sources = [
+        f"https://explorer.chainweb.com/mainnet/account/{address}/transfers?size=1000"
+    ]
+    data = try_sources(sources, {})
+    related_addresses = set()
+    if isinstance(data, dict) and "transfers" in data and isinstance(data["transfers"], list):
+        for tx in data["transfers"]:
+            # Kadena explorer: each transfer should have from/to fields
+            from_addr = tx.get("from")
+            to_addr = tx.get("to")
+            # Add only if not the current address
+            if from_addr and from_addr != address:
+                related_addresses.add(from_addr)
+            if to_addr and to_addr != address:
+                related_addresses.add(to_addr)
+    return len(related_addresses)
