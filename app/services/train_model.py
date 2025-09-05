@@ -3,7 +3,7 @@ from sklearn.svm import SVC
 import joblib
 import os
 
-df = pd.read_csv("app/data/models/data.csv")
+df = pd.read_csv("app/data/data.csv")
 X = df.drop('target', axis=1)
 y = df['target']
 
