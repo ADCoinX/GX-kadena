@@ -76,6 +76,27 @@ Even in the demo stage, we evaluate potential risks and mitigation paths.
 | **ISO 20022 Export Injection**| Low        | Medium | XML schema validation, sanitize input |
 | **Google Sheets Log Abuse**   | Medium     | Low/Med| Env-secured keys, migrate to DB w/ auth |
 
+## Degraded Mode Disclaimer
+
+GuardianX Kadena Validator is designed to fetch live data from public APIs with multiple fallback endpoints.  
+In some cases, when upstream nodes are throttled, unreachable, or return partial data, the system will enter **Degraded Mode**.
+
+- Instead of failing or returning dummy values, the validator will **transparently flag the result as `degraded`**.  
+- The score and ISO 20022 XML export are still generated, but with limited context from upstream data.  
+- This approach ensures:
+  - **Service continuity** (no downtime / 500 error to the user).  
+  - **Transparency** (reviewers, auditors, and users can see when data was incomplete).  
+  - **Security** (no remote secrets, only public APIs, circuit-breaker and fallback logic applied).  
+
+For demonstration purposes, we also provide a set of **sample Kadena wallet addresses** that return stable non-degraded results:
+
+- `k:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` → [High balance sample]  
+- `k:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy` → [Normal activity sample]  
+- `k:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz` → [Low balance / new account sample]  
+
+> **Note:** `Degraded Mode` is an intentional resilience feature, not a bug.  
+> It proves the validator can survive upstream errors while keeping user trust and compliance integrity.
+
 ### ⚖️ Summary
 - Highest risk (short-term): **DDoS / API spam** and **Phishing clones**  
 - Medium risk: **XSS, API dependency abuse, AI bypass**  
