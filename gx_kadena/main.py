@@ -1,7 +1,9 @@
 
 # main.py
 from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 import datetime as dt
 
 # --- internal imports (sedia ada dalam repo kau) ---
@@ -25,26 +27,26 @@ app.middleware("http")(logging_middleware)
 app.middleware("http")(metrics_mw)
 
 # ---------------------------------------------------------------------
-# Landing (elak 404 di '/')
+# Static UI (serve folder: gx_kadena/static)
 # ---------------------------------------------------------------------
-@app.get("/", include_in_schema=False, tags=["system"])
-def root():
-    """Simple landing so Render/ALB healthcheck tak 404."""
-    return {
-        "service": app.title,
-        "version": app.version,
-        "status": "ok",
-        "ts": dt.datetime.utcnow().isoformat() + "Z",
-        "docs": {"swagger": "/docs", "redoc": "/redoc"},
-        "endpoints": sorted(
-            {getattr(r, "path", None) for r in app.routes if hasattr(r, "path")}
-        ),
-    }
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-# (Jika nak redirect terus ke Swagger UI, ganti root() di atas dengan yang ini)
-# @app.get("/", include_in_schema=False)
-# def root_redirect():
-#     return RedirectResponse(url="/docs")
+# Mount UI under /app to avoid shadowing /docs
+app.mount("/app", StaticFiles(directory=str(STATIC_DIR), html=True), name="ui")
+
+# Redirect "/" → UI
+@app.get("/", include_in_schema=False)
+def root_redirect():
+    return RedirectResponse(url="/app/")
+
+# Optional: direct file routes (favicon, robots)
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    icon = STATIC_DIR / "favicon.ico"
+    if icon.exists():
+        return FileResponse(icon)
+    return HTMLResponse(status_code=204, content="")
 
 # ---------------------------------------------------------------------
 # Health
