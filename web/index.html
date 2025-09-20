@@ -4,14 +4,15 @@
   <meta charset="UTF-8" />
   <title>GuardianX | Kadena Wallet Risk Validator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <!-- FIXED: relative path -->
+  <link rel="stylesheet" href="./static/style.css" />
 </head>
 <body>
   <!-- HERO / BRAND -->
   <header class="hero">
     <div class="brand">
-      <!-- Pastikan fail ini wujud di: web/static/GX_Logo.png -->
-      <img src="/static/GX_Logo.png" alt="GuardianX Logo" id="logo" width="120" height="auto">
+      <!-- FIXED: relative path -->
+      <img src="./static/GX_Logo.png" alt="GuardianX Logo" id="logo" width="120" height="auto">
     </div>
     <h1>GuardianX Kadena Validator</h1>
   </header>
@@ -51,6 +52,7 @@
     <!-- RESULT -->
     <section id="result-panel" class="hidden">
       <div id="score-badge"></div>
+      <!-- FIXED: id score-fill untuk JS -->
       <div id="score-bar"><div class="fill" id="score-fill"></div></div>
       <div id="flags-list"></div>
       <div id="sources-list"></div>
@@ -68,7 +70,8 @@
     <small>⚠️ GuardianX risk assessment is not financial advice.</small>
   </footer>
 
-  <script src="/static/script.js"></script>
+  <!-- FIXED: relative path -->
+  <script src="./static/script.js"></script>
   <noscript>
     <p style="text-align:center;color:#aaa">Please enable JavaScript to use GuardianX.</p>
   </noscript>
