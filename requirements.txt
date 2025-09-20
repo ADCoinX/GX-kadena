@@ -8,3 +8,4 @@ python-dotenv
 pytest
 mypy
 ruff
+aiofiles>=23.2.1
