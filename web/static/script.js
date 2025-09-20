@@ -1,95 +1,95 @@
-/** GuardianX frontend logic for validation flow and rendering. */
+/** GuardianX frontend (match FastAPI: GET /validate/{address}, GET /rwa/{address}) */
 document.addEventListener("DOMContentLoaded", () => {
-  const form = document.getElementById("validate-form");
-  const resultPanel = document.getElementById("result-panel");
-  const scoreBadge = document.getElementById("score-badge");
-  const scoreBar = document.getElementById("score-bar");
-  const flagsList = document.getElementById("flags-list");
-  const sourcesList = document.getElementById("sources-list");
-  const xmlDownload = document.getElementById("xml-download");
-  const rwaPanel = document.getElementById("rwa-panel");
-  const statsText = document.getElementById("stats-text");
+  const form        = document.getElementById("validate-form");
+  const chainSel    = document.getElementById("chain-select");
+  const addrInput   = document.getElementById("address-input");
+  const checkRWA    = document.getElementById("check-rwa");
 
-  /** Load traction stats on page load */
-  async function loadStats() {
-    try {
-      const r = await fetch("/stats");
-      if (!r.ok) return;
-      const j = await r.json();
-      statsText.textContent = `✅ ${j.validations} wallet validations recorded`;
-    } catch (e) {
-      statsText.textContent = "⚠️ Stats unavailable";
-    }
+  const panel       = document.getElementById("result-panel");
+  const scoreBadge  = document.getElementById("score-badge");
+  const scoreFill   = document.getElementById("score-fill");
+  const flagsList   = document.getElementById("flags-list");
+  const sourcesList = document.getElementById("sources-list");
+  const xmlLink     = document.getElementById("xml-download");
+  const rwaPanel    = document.getElementById("rwa-panel");
+
+  function setXMLLinks(address) {
+    const enc = encodeURIComponent(address);
+    const ref = `GX-${Date.now()}`;
+    xmlLink.href = `/iso/pacs008.xml?address=${enc}&reference_id=${ref}&amount=0.00&ccy=KDA`;
+    xmlLink.style.display = "inline";
   }
 
-  /** Handle validation submit */
+  async function jget(url) {
+    const r = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    resultPanel.classList.add("hidden");
+
+    const chain   = chainSel.value; // reserved for future multi-chain
+    const address = addrInput.value.trim();
+    if (!address) { alert("Please enter a wallet address."); return; }
+
+    // Reset UI
+    panel.classList.add("hidden");
     scoreBadge.textContent = "Validating…";
-    scoreBar.style.width = "0%";
-
-    const chain = document.getElementById("chain-select").value;
-    const address = document.getElementById("address-input").value.trim();
-    const checkRWA = document.getElementById("check-rwa").checked;
-    if (!address) {
-      alert("Please enter a wallet address.");
-      return;
-    }
-
-    const payload = { chain, address, check_rwa: checkRWA };
+    scoreFill.style.width = "0%";
+    scoreFill.className = "fill";
+    flagsList.textContent = "";
+    sourcesList.textContent = "";
+    rwaPanel.textContent = "";
+    xmlLink.style.display = "none";
 
     try {
-      const res = await fetch("/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("Validation failed");
-      const data = await res.json();
+      // 1) Validate (GET /validate/{address})
+      const data = await jget(`/validate/${encodeURIComponent(address)}`);
 
-      // Score badge + bar
-      scoreBadge.textContent = `Score: ${data.score}`;
-      const scorePercent = Math.min(100, Math.round(data.score * 10));
-      scoreBar.style.width = `${scorePercent}%`;
-      scoreBar.style.backgroundColor =
-        data.score >= 7 ? "#2ecc71" : data.score >= 4 ? "#f39c12" : "#e74c3c";
+      // Risk score handling (expect 0–100; fallback if 0–10)
+      let score = Number(data.risk_score ?? 0);
+      if (score <= 10) score = Math.round(score * 10);
+      score = Math.max(0, Math.min(100, score));
+
+      scoreBadge.textContent = `Score: ${score}`;
+      scoreFill.style.width = `${score}%`;
+      if (score >= 70) scoreFill.classList.add("ok");
+      else if (score >= 40) scoreFill.classList.add("warn");
+      else scoreFill.classList.add("bad");
 
       // Flags
-      flagsList.innerHTML = "";
-      if (data.flags && data.flags.length) {
-        flagsList.innerHTML = `<strong>Flags:</strong> <ul>` +
-          data.flags.map(f => `<li>${f}</li>`).join("") +
-          `</ul>`;
+      if (Array.isArray(data.flags) && data.flags.length) {
+        flagsList.innerHTML = `<strong>Flags:</strong><ul>${
+          data.flags.map(f => `<li>${f}</li>`).join("")
+        }</ul>`;
       } else {
-        flagsList.textContent = "Flags: None";
+        flagsList.textContent = "Flags: none";
       }
 
-      // Sources
-      sourcesList.innerHTML = "<strong>Sources:</strong> " +
-        (data.data_sources_used ? JSON.stringify(data.data_sources_used) : "N/A");
-
-      // RWA
-      rwaPanel.textContent =
-        data.rwa_check && data.rwa_check.tokens
-          ? "RWA: " + data.rwa_check.tokens.join(", ")
-          : "";
-
-      // ISO20022 XML
-      if (data.iso_xml) {
-        xmlDownload.href = "data:text/xml;base64," + btoa(data.iso_xml);
-        xmlDownload.style.display = "inline";
-      } else {
-        xmlDownload.style.display = "none";
+      // Sources (optional from API)
+      if (data.data_sources_used) {
+        sourcesList.innerHTML = `<strong>Sources:</strong> ${JSON.stringify(data.data_sources_used)}`;
       }
 
-      resultPanel.classList.remove("hidden");
-      loadStats(); // refresh stats after validation
+      // 2) Optional RWA lookup
+      if (checkRWA.checked) {
+        try {
+          const rwa = await jget(`/rwa/${encodeURIComponent(address)}`);
+          const toks = (rwa.tokens || []).join(", ");
+          const assets = (rwa.assets || []).map(a => a.symbol || a.name).join(", ");
+          const txt = [toks, assets].filter(Boolean).join(" • ");
+          if (txt) rwaPanel.textContent = `RWA: ${txt}`;
+        } catch (_) { /* ignore RWA errors */ }
+      }
+
+      // 3) Enable ISO20022 XML download (pacs.008)
+      setXMLLinks(address);
+
+      panel.classList.remove("hidden");
     } catch (err) {
-      alert("❌ Validation failed. Please try again.");
       console.error(err);
+      alert("❌ Validation failed. Please check the address and try again.");
     }
   });
-
-  loadStats(); // run once on page load
 });
