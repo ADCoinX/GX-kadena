@@ -1,0 +1,1 @@
+# ISO 20022 module init
