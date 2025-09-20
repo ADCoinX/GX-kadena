@@ -1,10 +1,10 @@
 
-# main.py
+# gx_kadena/main.py
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-import datetime as dt
+import sys, datetime as dt
 
 from .validator import validate_address, ValidationResult
 from .rwa.assets import get_rwa_assets
@@ -21,49 +21,48 @@ app.middleware("http")(security_headers_mw)
 app.middleware("http")(logging_middleware)
 app.middleware("http")(metrics_mw)
 
-# ------------------------- UI MOUNT (web/) -------------------------
-# File layout:
-#   repo/
-#     gx_kadena/   <-- this file lives here
-#     web/
-#       index.html
-#       static/ (GX_Logo.png, favicon.ico, script.js, style.css)
+# ---------- DEBUG: log lokasi penting ----------
+APP_FILE = Path(__file__).resolve()
+GX_DIR   = APP_FILE.parent                 # .../gx_kadena
+REPO_DIR = GX_DIR.parent                   # .../
+WEB_DIR  = REPO_DIR / "web"                # .../web (index.html + static/)
+LEGACY   = GX_DIR / "static"               # .../gx_kadena/static (kalau ada)
+print(f"[BOOT] __file__={APP_FILE}")
+print(f"[BOOT] GX_DIR={GX_DIR}")
+print(f"[BOOT] REPO_DIR={REPO_DIR}")
+print(f"[BOOT] WEB_DIR exists? {WEB_DIR.exists()}  -> {WEB_DIR}")
+print(f"[BOOT] LEGACY exists? {LEGACY.exists()}    -> {LEGACY}")
+print(f"[BOOT] sys.path[0]={sys.path[0]}")
 
-GX_DIR   = Path(__file__).resolve().parent          # .../gx_kadena
-WEB_DIR  = GX_DIR.parent / "web"                    # .../web
-LEGACY_STATIC = GX_DIR / "static"                   # optional fallback
-
+# ---------- UI MOUNT (tanpa crash kalau folder tiada) ----------
+MOUNTED = False
 if WEB_DIR.exists():
-    # Serve index.html + /static under /app
     app.mount("/app", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
-elif LEGACY_STATIC.exists():
-    # Fallback if someone kept the old gx_kadena/static layout
-    app.mount("/app", StaticFiles(directory=str(LEGACY_STATIC), html=True), name="ui")
+    MOUNTED = True
+elif LEGACY.exists():
+    app.mount("/app", StaticFiles(directory=str(LEGACY), html=True), name="ui")
+    MOUNTED = True
 else:
-    print(f"⚠️ UI not found. Tried {WEB_DIR} and {LEGACY_STATIC}")
+    print("⚠️  UI folder not found. Will run API-only. (Tried /web and /gx_kadena/static)")
 
-# Redirect "/" → UI so health checks/users don’t hit 404
 @app.get("/", include_in_schema=False)
 def root_redirect():
-    return RedirectResponse(url="/app/")
+    return RedirectResponse(url="/app/" if MOUNTED else "/docs")
 
-# Direct favicon route (works whether UI is in web/ or legacy static/)
+# Optional: favicon lookup di dua lokasi
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    for p in [
-        WEB_DIR / "static" / "favicon.ico",
-        LEGACY_STATIC / "favicon.ico",
-    ]:
+    for p in [WEB_DIR / "static" / "favicon.ico", LEGACY / "favicon.ico"]:
         if p.exists():
             return FileResponse(p)
     return HTMLResponse(status_code=204, content="")
 
-# ------------------------- Health -------------------------
+# ---------------- Health ----------------
 @app.get("/health", tags=["system"])
 async def health():
     return {"status": "ok", "ts": dt.datetime.utcnow().isoformat() + "Z"}
 
-# ------------------------- Core ---------------------------
+# --------------- Core -------------------
 @app.get("/validate/{address}", response_model=ValidationResult, tags=["validate"])
 async def validate(address: str):
     try:
@@ -80,7 +79,7 @@ async def risk_endpoint(address: str):
 async def rwa(address: str):
     return get_rwa_assets(address)
 
-# ---------------------- ISO 20022 -------------------------
+# -------------- ISO 20022 ---------------
 @app.get("/iso/pacs008.xml", tags=["iso20022"])
 async def iso_pacs(address: str, reference_id: str = "GX-TEST-001",
                    amount: str = "0.00", ccy: str = "KDA"):
@@ -101,7 +100,7 @@ async def iso_camt(address: str):
     return Response(content=xml_bytes, media_type="application/xml",
                     headers={"Content-Disposition": f'attachment; filename="camt053_{res.address}.xml"'})
 
-# ------------------------ Metrics -------------------------
+# --------------- Metrics ----------------
 @app.get("/metrics", include_in_schema=False, tags=["system"])
 async def metrics():
     content, content_type = get_metrics()
