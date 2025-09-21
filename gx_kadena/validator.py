@@ -30,7 +30,6 @@ async def validate_address(address: str) -> ValidationResult:
     isct = await is_contract_address(address)
     score, flags = risk_score(total_balance, tx24, isct)
     dur = int((time.time() - t0) * 1000)
-    # Optionally, define 'balance' as balance of the first found chain, or 0 if not found
     balance = balances_per_chain.get(chain_found, 0) if chain_found is not None else 0
     return ValidationResult(
         address=address,
