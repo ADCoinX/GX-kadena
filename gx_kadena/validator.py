@@ -1,6 +1,6 @@
 import datetime as dt
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict
 from pydantic import BaseModel, Field
 from .kadena_client import get_balance_any_chain, get_tx_count_24h, is_contract_address
 from .risk import risk_score
@@ -10,6 +10,7 @@ class ValidationResult(BaseModel):
     chain_found: Optional[int] = None
     balance: int
     total_balance: int
+    balances_per_chain: Optional[Dict[int, int]] = None
     tx_total_24h: Optional[int] = None
     is_contract: Optional[bool] = None
     risk_score: int
@@ -24,16 +25,19 @@ async def validate_address(address: str) -> ValidationResult:
     if not is_kadena_address(address):
         raise ValueError("Invalid Kadena address format")
     t0 = time.time()
-    balance, chain_found = await get_balance_any_chain(address)
+    total_balance, chain_found, balances_per_chain = await get_balance_any_chain(address)
     tx24 = await get_tx_count_24h(address)
     isct = await is_contract_address(address)
-    score, flags = risk_score(balance, tx24, isct)
+    score, flags = risk_score(total_balance, tx24, isct)
     dur = int((time.time() - t0) * 1000)
+    # Optionally, define 'balance' as balance of the first found chain, or 0 if not found
+    balance = balances_per_chain.get(chain_found, 0) if chain_found is not None else 0
     return ValidationResult(
         address=address,
         chain_found=chain_found,
         balance=balance,
-        total_balance=balance,
+        total_balance=total_balance,
+        balances_per_chain=balances_per_chain,
         tx_total_24h=tx24,
         is_contract=isct,
         risk_score=score,
