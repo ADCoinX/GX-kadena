@@ -1,6 +1,6 @@
 import time
 import datetime as dt
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 import httpx
 
 from .config import KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE
@@ -28,23 +28,35 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
             continue
     raise RuntimeError("All Pact endpoints failed")
 
-async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int]]:
+async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[int, int]]:
     async with httpx.AsyncClient() as client:
+        total = 0
+        found = None
+        per_chain = {}
         for c in CHAINS:
             code = f'(coin.get-balance "{address}")'
             try:
                 res = await pact_local(client, c, code)
                 val = res["result"]["data"]
                 if isinstance(val, (int, float)) and val > 0:
-                    return int(val), c
+                    per_chain[c] = int(val)
+                    total += int(val)
+                    if found is None:
+                        found = c
             except Exception:
                 continue
-        try:
-            res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
-            val = res["result"]["data"]
-            return int(val) if isinstance(val, (int, float)) else 0, 0
-        except Exception:
-            return 0, None
+        # fallback: kalau semua chain 0, cuba chain 0
+        if total == 0:
+            try:
+                res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
+                val = res["result"]["data"]
+                total = int(val) if isinstance(val, (int, float)) else 0
+                found = 0
+                per_chain[0] = total
+            except Exception:
+                total = 0
+                found = None
+        return total, found, per_chain
 
 async def get_tx_count_24h(address: str) -> Optional[int]:
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
