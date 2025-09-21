@@ -1,10 +1,9 @@
-
-# gx_kadena/main.py
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import sys, datetime as dt
+from urllib.parse import unquote  # <--- TAMBAH INI
 
 from .validator import validate_address, ValidationResult
 from .rwa.assets import get_rwa_assets
@@ -65,6 +64,7 @@ async def health():
 # --------------- Core -------------------
 @app.get("/validate/{address}", response_model=ValidationResult, tags=["validate"])
 async def validate(address: str):
+    address = unquote(address)
     try:
         return await validate_address(address)
     except ValueError as e:
@@ -72,17 +72,20 @@ async def validate(address: str):
 
 @app.get("/risk/{address}", tags=["validate"])
 async def risk_endpoint(address: str):
+    address = unquote(address)
     res = await validate_address(address)
     return {"address": res.address, "risk_score": res.risk_score, "flags": res.flags}
 
 @app.get("/rwa/{address}", tags=["rwa"])
 async def rwa(address: str):
+    address = unquote(address)
     return get_rwa_assets(address)
 
 # -------------- ISO 20022 ---------------
 @app.get("/iso/pacs008.xml", tags=["iso20022"])
 async def iso_pacs(address: str, reference_id: str = "GX-TEST-001",
                    amount: str = "0.00", ccy: str = "KDA"):
+    address = unquote(address)
     res = await validate_address(address)
     rwa_blk = get_rwa_assets(address)
     xml_bytes = xml_pacs008(address=res.address, ref_id=reference_id,
@@ -93,6 +96,7 @@ async def iso_pacs(address: str, reference_id: str = "GX-TEST-001",
 
 @app.get("/iso/camt053.xml", tags=["iso20022"])
 async def iso_camt(address: str):
+    address = unquote(address)
     res = await validate_address(address)
     rwa_blk = get_rwa_assets(address)
     xml_bytes = xml_camt053(address=res.address, balance=res.total_balance,
