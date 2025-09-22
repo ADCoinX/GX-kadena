@@ -19,7 +19,16 @@ class ValidationResult(BaseModel):
     timestamp: dt.datetime = Field(default_factory=lambda: dt.datetime.utcnow())
 
 def is_kadena_address(addr: str) -> bool:
-    return addr.startswith("k:") or len(addr) in (64, 66, 68)
+    # Strict: valid "k:<hex>" or 64/66/68 chars of hex (no "k:")
+    if addr.startswith("k:") and len(addr) == 66:
+        return True
+    if len(addr) in (64, 66, 68):
+        try:
+            int(addr.replace("k:", ""), 16)
+            return True
+        except Exception:
+            return False
+    return False
 
 async def validate_address(address: str) -> ValidationResult:
     if not is_kadena_address(address):
@@ -31,8 +40,25 @@ async def validate_address(address: str) -> ValidationResult:
     isct = await is_contract_address(address)
     score, flags = risk_score(total_balance, tx24, isct)
     dur = int((time.time() - t0) * 1000)
-    # Get balance for chain_found, else 0.0 (as float)
-    balance = balances_per_chain.get(chain_found, 0.0) if (balances_per_chain and chain_found is not None) else 0.0
+    # Defensive: If balances_per_chain is None or empty, force dict and balance = 0.0
+    if not balances_per_chain:
+        balances_per_chain = {}
+    balance = 0.0
+    if chain_found is not None and chain_found in balances_per_chain:
+        balance = balances_per_chain[chain_found]
+    # Debug print for troubleshooting
+    print("DEBUG ValidationResult:", {
+        "address": address,
+        "chain_found": chain_found,
+        "balance": balance,
+        "total_balance": total_balance,
+        "balances_per_chain": balances_per_chain,
+        "tx_total_24h": tx24,
+        "is_contract": isct,
+        "risk_score": score,
+        "flags": flags,
+        "duration_ms": dur,
+    })
     return ValidationResult(
         address=address,
         chain_found=chain_found,
