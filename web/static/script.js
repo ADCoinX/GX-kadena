@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const sourcesList = document.getElementById("sources-list");
   const xmlLink     = document.getElementById("xml-download");
   const rwaPanel    = document.getElementById("rwa-panel");
+  const balanceValue = document.getElementById("balance-value"); // <-- Tambahan untuk baki
 
   function setXMLLinks(address) {
     const enc = encodeURIComponent(address);
@@ -42,10 +43,20 @@ document.addEventListener("DOMContentLoaded", () => {
     sourcesList.textContent = "";
     rwaPanel.textContent = "";
     xmlLink.style.display = "none";
+    if (balanceValue) balanceValue.textContent = "-"; // Reset balance
 
     try {
       // 1) Validate (GET /validate/{address})
       const data = await jget(`/validate/${encodeURIComponent(address)}`);
+
+      // --- Papar baki (total_balance) jika ada ---
+      if (balanceValue) {
+        if (data.total_balance !== undefined && data.total_balance !== null) {
+          balanceValue.textContent = data.total_balance;
+        } else {
+          balanceValue.textContent = "-";
+        }
+      }
 
       // Risk score handling (expect 0–100; fallback if 0–10)
       let score = Number(data.risk_score ?? 0);
