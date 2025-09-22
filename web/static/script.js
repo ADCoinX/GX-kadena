@@ -12,7 +12,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const sourcesList = document.getElementById("sources-list");
   const xmlLink     = document.getElementById("xml-download");
   const rwaPanel    = document.getElementById("rwa-panel");
-  const balanceValue = document.getElementById("balance-value"); // <-- Tambahan untuk baki
+  const balanceValue = document.getElementById("balance-value"); // <-- For balance display
+  const statsText   = document.getElementById("stats-text");     // <-- For traction display
 
   function setXMLLinks(address) {
     const enc = encodeURIComponent(address);
@@ -26,6 +27,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.json();
   }
+
+  async function updateTraction() {
+    if (!statsText) return;
+    try {
+      const res = await fetch('/traction');
+      if (!res.ok) throw new Error("Traction unavailable");
+      const data = await res.json();
+      statsText.textContent = `Traction: ${data.total_requests} validations`;
+    } catch {
+      statsText.textContent = 'Traction: unavailable';
+    }
+  }
+
+  // Call on page load
+  updateTraction();
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -49,7 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // 1) Validate (GET /validate/{address})
       const data = await jget(`/validate/${encodeURIComponent(address)}`);
 
-      // --- Papar baki (total_balance) jika ada ---
+      // --- Show balance (total_balance) if available ---
       if (balanceValue) {
         if (data.total_balance !== undefined && data.total_balance !== null) {
           balanceValue.textContent = data.total_balance;
@@ -98,9 +114,14 @@ document.addEventListener("DOMContentLoaded", () => {
       setXMLLinks(address);
 
       panel.classList.remove("hidden");
+
+      // 4) Update traction stats after validation
+      updateTraction();
+
     } catch (err) {
       console.error(err);
       alert("❌ Validation failed. Please check the address and try again.");
+      updateTraction();
     }
   });
 });
