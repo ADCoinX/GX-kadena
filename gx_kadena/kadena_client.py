@@ -32,7 +32,7 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
             continue
     raise RuntimeError("All Pact endpoints failed")
 
-async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[int, int]]:
+async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
     # --- USE KADINDEXER IF API KEY PRESENT ---
     if KADINDEXER_API_KEY:
         url = f"{KADINDEXER_BASE}account/{address}/balance"
@@ -43,8 +43,8 @@ async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[
                 if resp.status_code == 200:
                     data = resp.json()
                     # Assume API return: {"total": ..., "per_chain": {"0": val, ...}}
-                    total = int(data.get("total", 0))
-                    per_chain = {int(k): int(v) for k, v in data.get("per_chain", {}).items()}
+                    total = float(data.get("total", 0))
+                    per_chain = {int(k): float(v) for k, v in data.get("per_chain", {}).items()}
                     found = next((c for c, v in per_chain.items() if v > 0), None)
                     return total, found, per_chain
         except Exception:
@@ -52,7 +52,7 @@ async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[
 
     # --- DEFAULT: PUBLIC CHAINWEB ---
     async with httpx.AsyncClient() as client:
-        total = 0
+        total = 0.0
         found = None
         per_chain = {}
         for c in CHAINS:
@@ -61,22 +61,22 @@ async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[
                 res = await pact_local(client, c, code)
                 val = res["result"]["data"]
                 if isinstance(val, (int, float)) and val > 0:
-                    per_chain[c] = int(val)
-                    total += int(val)
+                    per_chain[c] = float(val)
+                    total += float(val)
                     if found is None:
                         found = c
             except Exception:
                 continue
         # fallback: kalau semua chain 0, cuba chain 0
-        if total == 0:
+        if total == 0.0:
             try:
                 res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
                 val = res["result"]["data"]
-                total = int(val) if isinstance(val, (int, float)) else 0
+                total = float(val) if isinstance(val, (int, float)) else 0.0
                 found = 0
                 per_chain[0] = total
             except Exception:
-                total = 0
+                total = 0.0
                 found = None
         return total, found, per_chain
 
