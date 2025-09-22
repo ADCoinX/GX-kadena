@@ -113,9 +113,13 @@ async def metrics():
 # --------------- Traction Endpoint ---------------
 @app.get("/traction", tags=["system"])
 async def traction():
-    # Return total request count for UI
+    """
+    Return the total request count for UI traction display.
+    """
     from .metrics import REQ_COUNT
     count = 0
     for sample in REQ_COUNT.collect()[0].samples:
-        count += sample.value
+        # Only count samples with .name ending in '_total' (Prometheus counter)
+        if sample.name.endswith("_total"):
+            count += sample.value
     return {"total_requests": int(count)}
