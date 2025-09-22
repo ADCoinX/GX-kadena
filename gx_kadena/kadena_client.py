@@ -2,8 +2,12 @@ import time
 import datetime as dt
 from typing import Optional, Tuple, Dict
 import httpx
+import os
 
-from .config import KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE
+from .config import (
+    KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE,
+    KADINDEXER_API_KEY, KADINDEXER_BASE
+)
 
 async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dict = None) -> dict:
     payload = {
@@ -29,6 +33,24 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
     raise RuntimeError("All Pact endpoints failed")
 
 async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[int, int]]:
+    # --- USE KADINDEXER IF API KEY PRESENT ---
+    if KADINDEXER_API_KEY:
+        url = f"{KADINDEXER_BASE}account/{address}/balance"
+        headers = {"x-api-key": KADINDEXER_API_KEY}
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, timeout=API_TIMEOUT)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Assume API return: {"total": ..., "per_chain": {"0": val, ...}}
+                    total = int(data.get("total", 0))
+                    per_chain = {int(k): int(v) for k, v in data.get("per_chain", {}).items()}
+                    found = next((c for c, v in per_chain.items() if v > 0), None)
+                    return total, found, per_chain
+        except Exception:
+            pass  # fallback ke default public chainweb bawah
+
+    # --- DEFAULT: PUBLIC CHAINWEB ---
     async with httpx.AsyncClient() as client:
         total = 0
         found = None
@@ -59,6 +81,20 @@ async def get_balance_any_chain(address: str) -> Tuple[int, Optional[int], Dict[
         return total, found, per_chain
 
 async def get_tx_count_24h(address: str) -> Optional[int]:
+    # --- USE KADINDEXER IF API KEY PRESENT ---
+    if KADINDEXER_API_KEY:
+        url = f"{KADINDEXER_BASE}account/{address}/txcount24h"
+        headers = {"x-api-key": KADINDEXER_API_KEY}
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, timeout=API_TIMEOUT)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return int(data.get("txcount24h", 0))
+        except Exception:
+            pass  # fallback ke public explorer bawah
+
+    # --- DEFAULT: PUBLIC EXPLORER ---
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
     try:
         async with httpx.AsyncClient() as client:
