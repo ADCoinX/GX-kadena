@@ -109,3 +109,13 @@ async def iso_camt(address: str):
 async def metrics():
     content, content_type = get_metrics()
     return Response(content, media_type=content_type)
+
+# --------------- Traction Endpoint ---------------
+@app.get("/traction", tags=["system"])
+async def traction():
+    # Return total request count for UI
+    from .metrics import REQ_COUNT
+    count = 0
+    for sample in REQ_COUNT.collect()[0].samples:
+        count += sample.value
+    return {"total_requests": int(count)}
