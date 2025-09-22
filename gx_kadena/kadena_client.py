@@ -33,29 +33,12 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
     raise RuntimeError("All Pact endpoints failed")
 
 async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
-    # --- USE KADINDEXER IF API KEY PRESENT ---
-    if KADINDEXER_API_KEY:
-        url = f"{KADINDEXER_BASE}account/{address}/balance"
-        headers = {"x-api-key": KADINDEXER_API_KEY}
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers, timeout=API_TIMEOUT)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # Assume API return: {"total": ..., "per_chain": {"0": val, ...}}
-                    total = float(data.get("total", 0))
-                    per_chain = {int(k): float(v) for k, v in data.get("per_chain", {}).items()}
-                    found = next((c for c, v in per_chain.items() if v > 0), None)
-                    return total, found, per_chain
-        except Exception:
-            pass  # fallback ke default public chainweb bawah
-
-    # --- DEFAULT: PUBLIC CHAINWEB ---
+    # PATCH: Always use direct public node calls for reliability
     async with httpx.AsyncClient() as client:
         total = 0.0
         found = None
         per_chain = {}
-        for c in CHAINS:
+        for c in range(20):  # Hardcode chain 0-19 for Kadena mainnet
             code = f'(coin.get-balance "{address}")'
             try:
                 res = await pact_local(client, c, code)
@@ -67,7 +50,7 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
                         found = c
             except Exception:
                 continue
-        # fallback: kalau semua chain 0, cuba chain 0
+        # fallback: kalau semua chain 0, cuba chain 0 sekali lagi
         if total == 0.0:
             try:
                 res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
@@ -78,6 +61,9 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
             except Exception:
                 total = 0.0
                 found = None
+        # Debug print
+        print("DEBUG get_balance_any_chain total:", total)
+        print("DEBUG get_balance_any_chain per_chain:", per_chain)
         return total, found, per_chain
 
 async def get_tx_count_24h(address: str) -> Optional[int]:
