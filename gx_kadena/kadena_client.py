@@ -28,17 +28,21 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
             r = await client.post(url, json=payload, timeout=API_TIMEOUT)
             if r.status_code == 200:
                 return r.json()
-        except Exception:
+        except Exception as e:
+            print(f"[pact_local] Chain {chain} on {base} error: {e}")
             continue
     raise RuntimeError("All Pact endpoints failed")
 
 async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
-    # PATCH: Always use direct public node calls for reliability
+    """
+    Get total KDA balance for an address across all mainnet chains (0-19).
+    This PATCH skips kadindexer and uses only direct node calls for true reliability.
+    """
+    total = 0.0
+    found = None
+    per_chain = {}
     async with httpx.AsyncClient() as client:
-        total = 0.0
-        found = None
-        per_chain = {}
-        for c in range(20):  # Hardcode chain 0-19 for Kadena mainnet
+        for c in range(20):  # Kadena mainnet chains: 0-19
             code = f'(coin.get-balance "{address}")'
             try:
                 res = await pact_local(client, c, code)
@@ -48,7 +52,8 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
                     total += float(val)
                     if found is None:
                         found = c
-            except Exception:
+            except Exception as e:
+                print(f"[get_balance_any_chain] Error fetching from chain {c}: {e}")
                 continue
         # fallback: kalau semua chain 0, cuba chain 0 sekali lagi
         if total == 0.0:
@@ -58,29 +63,17 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
                 total = float(val) if isinstance(val, (int, float)) else 0.0
                 found = 0
                 per_chain[0] = total
-            except Exception:
+            except Exception as e:
+                print(f"[get_balance_any_chain] Fallback chain 0 error: {e}")
                 total = 0.0
                 found = None
-        # Debug print
-        print("DEBUG get_balance_any_chain total:", total)
-        print("DEBUG get_balance_any_chain per_chain:", per_chain)
-        return total, found, per_chain
+    # Debug print
+    print("DEBUG get_balance_any_chain total:", total)
+    print("DEBUG get_balance_any_chain per_chain:", per_chain)
+    print("DEBUG address:", address)
+    return total, found, per_chain
 
 async def get_tx_count_24h(address: str) -> Optional[int]:
-    # --- USE KADINDEXER IF API KEY PRESENT ---
-    if KADINDEXER_API_KEY:
-        url = f"{KADINDEXER_BASE}account/{address}/txcount24h"
-        headers = {"x-api-key": KADINDEXER_API_KEY}
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers, timeout=API_TIMEOUT)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return int(data.get("txcount24h", 0))
-        except Exception:
-            pass  # fallback ke public explorer bawah
-
-    # --- DEFAULT: PUBLIC EXPLORER ---
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
     try:
         async with httpx.AsyncClient() as client:
@@ -109,7 +102,8 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
                 if dt_obj >= cutoff:
                     cnt += 1
             return cnt
-    except Exception:
+    except Exception as e:
+        print(f"[get_tx_count_24h] Error: {e}")
         return None
 
 async def is_contract_address(address: str) -> Optional[bool]:
