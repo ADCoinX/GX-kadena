@@ -2,12 +2,30 @@ import time
 import datetime as dt
 from typing import Optional, Tuple, Dict
 import httpx
-import os
 
 from .config import (
     KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE,
     KADINDEXER_API_KEY, KADINDEXER_BASE
 )
+
+# --- Normalizer untuk balance ---
+def normalize_balance(val) -> float:
+    """
+    Normalize Pact balance response:
+    - {"int": "100000000"} -> 100000000.0
+    - "0.0" -> 0.0
+    - 12345 -> 12345.0
+    - fail -> 0.0
+    """
+    try:
+        if isinstance(val, dict) and "int" in val:
+            return float(val["int"])
+        elif isinstance(val, (int, float, str)):
+            return float(val)
+    except Exception:
+        return 0.0
+    return 0.0
+
 
 async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dict = None) -> dict:
     payload = {
@@ -33,45 +51,51 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
             continue
     raise RuntimeError("All Pact endpoints failed")
 
+
 async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
     """
     Get total KDA balance for an address across all mainnet chains (0-19).
-    This PATCH skips kadindexer and uses only direct node calls for true reliability.
+    Skips kadindexer, use direct Pact local calls.
     """
     total = 0.0
     found = None
-    per_chain = {}
+    per_chain: Dict[int, float] = {}
+
     async with httpx.AsyncClient() as client:
         for c in range(20):  # Kadena mainnet chains: 0-19
             code = f'(coin.get-balance "{address}")'
             try:
                 res = await pact_local(client, c, code)
-                val = res["result"]["data"]
-                if isinstance(val, (int, float)) and val > 0:
-                    per_chain[c] = float(val)
-                    total += float(val)
+                val = normalize_balance(res.get("result", {}).get("data", 0))
+                if val > 0:
+                    per_chain[c] = val
+                    total += val
                     if found is None:
                         found = c
             except Exception as e:
                 print(f"[get_balance_any_chain] Error fetching from chain {c}: {e}")
                 continue
-        # fallback: kalau semua chain 0, cuba chain 0 sekali lagi
+
+        # Fallback: retry chain 0 kalau semua balance kosong
         if total == 0.0:
             try:
                 res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
-                val = res["result"]["data"]
-                total = float(val) if isinstance(val, (int, float)) else 0.0
-                found = 0
-                per_chain[0] = total
+                val = normalize_balance(res.get("result", {}).get("data", 0))
+                total = val
+                found = 0 if val > 0 else None
+                per_chain[0] = val
             except Exception as e:
                 print(f"[get_balance_any_chain] Fallback chain 0 error: {e}")
                 total = 0.0
                 found = None
-    # Debug print
+
+    # Debug log
     print("DEBUG get_balance_any_chain total:", total)
     print("DEBUG get_balance_any_chain per_chain:", per_chain)
     print("DEBUG address:", address)
+
     return total, found, per_chain
+
 
 async def get_tx_count_24h(address: str) -> Optional[int]:
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
@@ -105,6 +129,7 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
     except Exception as e:
         print(f"[get_tx_count_24h] Error: {e}")
         return None
+
 
 async def is_contract_address(address: str) -> Optional[bool]:
     # MVP: always False (stub)
