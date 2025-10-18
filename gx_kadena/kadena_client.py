@@ -10,7 +10,7 @@ from .config import (
     KADINDEXER_API_KEY, KADINDEXER_BASE
 )
 
-# Simple in-memory TTL cache to avoid hammering nodes/indexer in short bursts.
+# Simple in-memory TTL cache to reduce repeated calls when nodes are slow/blocked.
 _BALANCE_CACHE_TTL = int(os.getenv("BALANCE_CACHE_TTL", "20"))  # seconds
 _balance_cache: Dict[str, tuple] = {}  # address -> (ts, total, found, per_chain)
 
@@ -27,7 +27,6 @@ def normalize_balance(val) -> float:
         if isinstance(val, (int, float)):
             return float(val)
         if isinstance(val, str):
-            # handle scientific notation etc.
             return float(val)
     except Exception:
         return 0.0
@@ -56,17 +55,15 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
         url = f"{b}/chainweb/0.0/{MAINNET}/chain/{chain}/pact/api/v1/local"
         try:
             r = await client.post(url, json=payload, timeout=t)
-            # Accept any 200 with JSON; caller will normalize
             if r.status_code == 200:
                 return r.json()
             else:
                 print(f"[pact_local] Non-200 from {url}: {r.status_code} {r.text[:200]}")
         except Exception as e:
-            # Log exception repr + short traceback for diagnostics
             print(f"[pact_local] {url} error: {repr(e)}")
             traceback.print_exc()
             continue
-    # Return empty to signal failure gracefully
+    # Return empty to signal failure gracefully (don't raise)
     return {}
 
 async def _get_balance_from_nodes(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
@@ -80,18 +77,11 @@ async def _get_balance_from_nodes(address: str) -> Tuple[float, Optional[int], D
     async with httpx.AsyncClient() as client:
         code = f'(coin.get-balance "{address}")'
         for c in CHAINS:
-            # Try each base for this chain until success
             try:
                 res = await pact_local(client, c, code)
                 if not res:
                     continue
-                # try to extract data from response
-                val = None
-                # Common Pact response shapes: res["result"]["data"]
-                try:
-                    val = res.get("result", {}).get("data")
-                except Exception:
-                    val = None
+                val = res.get("result", {}).get("data") if isinstance(res, dict) else None
                 val_f = normalize_balance(val)
                 if val_f and val_f > 0:
                     per_chain[c] = float(val_f)
@@ -109,13 +99,11 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
     Public function to get total balance. Tries (1) cache, (2) direct nodes, (3) kadindexer fallback.
     Returns (total, chain_found, per_chain_dict).
     """
-    # Cache check
     now = int(time.time())
     cached = _balance_cache.get(address)
     if cached:
         ts, total, found, per_chain = cached
         if now - ts < _BALANCE_CACHE_TTL:
-            # print debug cache hit
             print(f"[cache] hit for {address} total={total}")
             return total, found, per_chain
         else:
@@ -149,7 +137,7 @@ async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dic
             print("[get_balance_any_chain] kadindexer error", repr(e))
             traceback.print_exc()
 
-    # 3) Nothing found
+    # 3) Nothing found — cache zero briefly to avoid hammer
     _balance_cache[address] = (now, 0.0, None, {})
     return 0.0, None, {}
 
@@ -157,7 +145,6 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
     """
     Try Kadindexer first (if available), else explorer. Handle 403 and JSON errors gracefully.
     """
-    # Kadindexer preferred for tx counts
     if KADINDEXER_API_KEY:
         url = f"{KADINDEXER_BASE}account/{address}/txcount24h"
         headers = {"x-api-key": KADINDEXER_API_KEY}
@@ -173,7 +160,7 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
             print("[get_tx_count_24h] kadindexer error", repr(e))
             traceback.print_exc()
 
-    # Fallback: public explorer (legacy). Some explorer endpoints may return non-JSON / 403.
+    # Fallback explorer (legacy)
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
     try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
