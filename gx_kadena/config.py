@@ -5,8 +5,8 @@ API_TIMEOUT = float(os.getenv("API_TIMEOUT", "8.0"))
 RATE_LIMIT_RPS = float(os.getenv("RATE_LIMIT_RPS", "10"))
 
 # ---------- Kadena Public RPC Nodes ----------
-# Default ONLY to the official public node. You can override via env but
-# prefer single reliable entry to avoid DNS failures on some hosts.
+# Default ONLY to the official public node. Override via env if necessary,
+# but prefer a single reliable entry to avoid DNS failures on some hosts.
 KADENA_PACT_BASES = [
     base.strip()
     for base in os.getenv(
