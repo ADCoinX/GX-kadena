@@ -1,9 +1,13 @@
+# gx_kadena/kadena_client.py
+# (Only the file is shown here. Replace the existing file with this content.)
+
 import time
 import datetime as dt
 from typing import Optional, Tuple, Dict
 import httpx
 import os
 import traceback
+import json
 
 from .config import (
     KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE,
@@ -34,8 +38,12 @@ def normalize_balance(val) -> float:
 
 async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dict = None, base: str = None, timeout: float = None) -> dict:
     """
-    Stateless Pact local query with multi-base fallback.
+    Stateless Pact local query with multi-base fallback and payload-format retries.
     Returns {} on failure (does not raise) to keep callers resilient.
+    This function will:
+      1) try the 'payload' wrapper format
+      2) if 400 mentioning missing 'cmd', retry with {"cmd": payload}
+      3) if still failing, retry with {"cmd": json.dumps(payload)}
     """
     payload = {
         "networkId": MAINNET,
@@ -51,18 +59,55 @@ async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dic
     }
     t = API_TIMEOUT if timeout is None else timeout
     bases = [base] if base else KADENA_PACT_BASES
+
     for b in bases:
         url = f"{b}/chainweb/0.0/{MAINNET}/chain/{chain}/pact/api/v1/local"
+
+        # Attempt 1: standard payload format (existing)
         try:
             r = await client.post(url, json=payload, timeout=t)
             if r.status_code == 200:
                 return r.json()
+            # Log the response body for diagnosis
+            body = (r.text or "")[:1000]
+            print(f"[pact_local] Non-200 from {url}: {r.status_code} {body}")
+            # If server complains about missing "cmd", we'll try alternative formats below
+            if r.status_code == 400 and "cmd" in body:
+                pass  # fall through to retry attempts
             else:
-                print(f"[pact_local] Non-200 from {url}: {r.status_code} {r.text[:200]}")
+                # For other non-200 responses, still attempt alternative formats occasionally
+                # but continue to next base after retries below.
+                pass
         except Exception as e:
-            print(f"[pact_local] {url} error: {repr(e)}")
+            print(f"[pact_local] {url} error (attempt 1): {repr(e)}")
             traceback.print_exc()
-            continue
+
+        # Attempt 2: wrap full payload under "cmd" key (some proxies expect this)
+        try:
+            alt = {"cmd": payload}
+            r2 = await client.post(url, json=alt, timeout=t)
+            if r2.status_code == 200:
+                return r2.json()
+            body2 = (r2.text or "")[:1000]
+            print(f"[pact_local] Non-200 alt1 from {url}: {r2.status_code} {body2}")
+            # if 200 not returned, continue to attempt 3
+        except Exception as e:
+            print(f"[pact_local] {url} error (attempt 2): {repr(e)}")
+            traceback.print_exc()
+
+        # Attempt 3: some gateways expect stringified cmd
+        try:
+            alt2 = {"cmd": json.dumps(payload)}
+            r3 = await client.post(url, json=alt2, timeout=t)
+            if r3.status_code == 200:
+                return r3.json()
+            body3 = (r3.text or "")[:1000]
+            print(f"[pact_local] Non-200 alt2 from {url}: {r3.status_code} {body3}")
+        except Exception as e:
+            print(f"[pact_local] {url} error (attempt 3): {repr(e)}")
+            traceback.print_exc()
+
+        # if reached here, this base failed all attempts — continue to next base
     # Return empty to signal failure gracefully (don't raise)
     return {}
 
@@ -145,6 +190,7 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
     """
     Try Kadindexer first (if available), else explorer. Handle 403 and JSON errors gracefully.
     """
+    # Kadindexer preferred for tx counts
     if KADINDEXER_API_KEY:
         url = f"{KADINDEXER_BASE}account/{address}/txcount24h"
         headers = {"x-api-key": KADINDEXER_API_KEY}
@@ -160,7 +206,7 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
             print("[get_tx_count_24h] kadindexer error", repr(e))
             traceback.print_exc()
 
-    # Fallback explorer (legacy)
+    # Fallback: public explorer (legacy). Some explorer endpoints may return non-JSON / 403.
     url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
     try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
@@ -168,6 +214,7 @@ async def get_tx_count_24h(address: str) -> Optional[int]:
             if r.status_code != 200:
                 print(f"[get_tx_count_24h] explorer status {r.status_code} {r.text[:200]}")
                 return None
+            # Defensive JSON parse
             try:
                 data = r.json()
             except Exception as e:
