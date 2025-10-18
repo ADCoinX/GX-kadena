@@ -1,49 +1,42 @@
 import time
 import datetime as dt
-from typing import Optional, Tuple, Dict, List
-import asyncio
+from typing import Optional, Tuple, Dict
 import httpx
+import os
+import traceback
 
 from .config import (
-    # Expect these to exist in your config; see notes at bottom for defaults.
-    KADENA_PACT_BASES,   # List[str] e.g. ["https://api.chainweb.com", ...]
-    MAINNET,             # e.g. "mainnet01"
-    CHAINS,              # e.g. range(20)
-    API_TIMEOUT,         # e.g. 15.0
-    KADINDEXER_BASE,     # e.g. "https://api.mainnet.kadindexer.io/v1"
-    KADINDEXER_API_KEY,  # optional str or ""
+    KADENA_PACT_BASES, MAINNET, CHAINS, API_TIMEOUT, KADENA_EXPLORER_BASE,
+    KADINDEXER_API_KEY, KADINDEXER_BASE
 )
 
-# ---------------- Utils ----------------
+# Simple in-memory TTL cache to avoid hammering nodes/indexer in short bursts.
+_BALANCE_CACHE_TTL = int(os.getenv("BALANCE_CACHE_TTL", "20"))  # seconds
+_balance_cache: Dict[str, tuple] = {}  # address -> (ts, total, found, per_chain)
+
 def normalize_balance(val) -> float:
     """
-    Normalize Pact balance response:
+    Normalize many Pact responses:
       - {"int": "100000000"} -> 100000000.0
-      - "0.0" | 12345        -> float
-      - invalid              -> 0.0
+      - "0.0" | 12345 -> float
+      - invalid -> 0.0
     """
     try:
         if isinstance(val, dict) and "int" in val:
             return float(val["int"])
-        elif isinstance(val, (int, float, str)):
-            # handle "1e8" gracefully
-            return float(str(val))
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, str):
+            # handle scientific notation etc.
+            return float(val)
     except Exception:
         return 0.0
     return 0.0
 
-
-# ---------------- Pact Local ----------------
-async def pact_local(
-    client: httpx.AsyncClient,
-    chain: int,
-    code: str,
-    data: dict | None = None,
-    timeout: float = None,
-) -> dict:
+async def pact_local(client: httpx.AsyncClient, chain: int, code: str, data: dict = None, base: str = None, timeout: float = None) -> dict:
     """
     Stateless Pact local query with multi-base fallback.
-    Returns {} on failure (does not raise), to keep the pipeline resilient.
+    Returns {} on failure (does not raise) to keep callers resilient.
     """
     payload = {
         "networkId": MAINNET,
@@ -54,160 +47,171 @@ async def pact_local(
             "gasLimit": 150000,
             "gasPrice": 1e-6,
             "ttl": 600,
-            "creationTime": int(time.time()),
-        },
+            "creationTime": int(time.time())
+        }
     }
     t = API_TIMEOUT if timeout is None else timeout
-
-    # small retry loop per base (network blips)
-    for base in KADENA_PACT_BASES:
-        url = f"{base}/chainweb/0.0/{MAINNET}/chain/{chain}/pact/api/v1/local"
-        for attempt in range(2):
-            try:
-                r = await client.post(url, json=payload, timeout=t)
-                if r.status_code == 200:
-                    return r.json() or {}
-            except Exception as e:
-                # debug only; keep stateless/no raise
-                print(f"[pact_local] {url} attempt {attempt+1} error: {e}")
-                await asyncio.sleep(0.15 * (attempt + 1))
-        # try next base
+    bases = [base] if base else KADENA_PACT_BASES
+    for b in bases:
+        url = f"{b}/chainweb/0.0/{MAINNET}/chain/{chain}/pact/api/v1/local"
+        try:
+            r = await client.post(url, json=payload, timeout=t)
+            # Accept any 200 with JSON; caller will normalize
+            if r.status_code == 200:
+                return r.json()
+            else:
+                print(f"[pact_local] Non-200 from {url}: {r.status_code} {r.text[:200]}")
+        except Exception as e:
+            # Log exception repr + short traceback for diagnostics
+            print(f"[pact_local] {url} error: {repr(e)}")
+            traceback.print_exc()
+            continue
+    # Return empty to signal failure gracefully
     return {}
 
-
-# ---------------- Balance (across all chains) ----------------
-async def _balance_one_chain(
-    client: httpx.AsyncClient,
-    chain: int,
-    address: str,
-    sem: asyncio.Semaphore,
-) -> tuple[int, float]:
+async def _get_balance_from_nodes(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
     """
-    Helper to fetch one chain balance under a semaphore.
-    Returns (chain, balance_float)
+    Try direct node calls across chains. Returns total, found, per_chain.
+    Does NOT use kadindexer. Caller can fallback to kadindexer if needed.
     """
-    code = f'(coin.get-balance "{address}")'
-    async with sem:
-        res = await pact_local(client, chain, code)
-    val = normalize_balance(res.get("result", {}).get("data", 0))
-    return chain, val
-
+    total = 0.0
+    found = None
+    per_chain: Dict[int, float] = {}
+    async with httpx.AsyncClient() as client:
+        code = f'(coin.get-balance "{address}")'
+        for c in CHAINS:
+            # Try each base for this chain until success
+            try:
+                res = await pact_local(client, c, code)
+                if not res:
+                    continue
+                # try to extract data from response
+                val = None
+                # Common Pact response shapes: res["result"]["data"]
+                try:
+                    val = res.get("result", {}).get("data")
+                except Exception:
+                    val = None
+                val_f = normalize_balance(val)
+                if val_f and val_f > 0:
+                    per_chain[c] = float(val_f)
+                    total += float(val_f)
+                    if found is None:
+                        found = c
+            except Exception as e:
+                print(f"[get_balance_any_chain] Error fetching chain {c}: {repr(e)}")
+                traceback.print_exc()
+                continue
+    return total, found, per_chain
 
 async def get_balance_any_chain(address: str) -> Tuple[float, Optional[int], Dict[int, float]]:
     """
-    Get total KDA balance for an address across MAINNET chains.
-    Parallelized with concurrency cap for stability. Stateless.
-    Returns: (total_balance, first_chain_found_or_None, per_chain_dict)
+    Public function to get total balance. Tries (1) cache, (2) direct nodes, (3) kadindexer fallback.
+    Returns (total, chain_found, per_chain_dict).
     """
-    total = 0.0
-    found: Optional[int] = None
-    per_chain: Dict[int, float] = {}
+    # Cache check
+    now = int(time.time())
+    cached = _balance_cache.get(address)
+    if cached:
+        ts, total, found, per_chain = cached
+        if now - ts < _BALANCE_CACHE_TTL:
+            # print debug cache hit
+            print(f"[cache] hit for {address} total={total}")
+            return total, found, per_chain
+        else:
+            _balance_cache.pop(address, None)
 
-    # reasonable concurrency to avoid hammering nodes
-    sem = asyncio.Semaphore(6)
+    # 1) Try direct nodes
+    total, found, per_chain = await _get_balance_from_nodes(address)
+    if total > 0.0:
+        _balance_cache[address] = (now, total, found, per_chain)
+        print("[get_balance_any_chain] direct node success", total, per_chain)
+        return total, found, per_chain
 
-    async with httpx.AsyncClient() as client:
-        tasks: List[asyncio.Task] = [
-            asyncio.create_task(_balance_one_chain(client, c, address, sem))
-            for c in CHAINS
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    for result in results:
-        if isinstance(result, Exception):
-            # ignore errors; stateless
-            continue
-        c, val = result
-        if val > 0:
-            per_chain[c] = val
-            total += val
-            if found is None:
-                found = c
-
-    # Optional: single-chain retry if everything zero (kept from your MVP)
-    if total == 0.0 and 0 in list(CHAINS):
-        try:
-            async with httpx.AsyncClient() as client:
-                res = await pact_local(client, 0, f'(coin.get-balance "{address}")')
-            val = normalize_balance(res.get("result", {}).get("data", 0))
-            if val > 0:
-                per_chain[0] = val
-                total = val
-                found = 0
-        except Exception as e:
-            print(f"[get_balance_any_chain] Fallback chain 0 error: {e}")
-
-    # Debug (stdout only; no file writes)
-    print("[DEBUG] get_balance_any_chain total:", total)
-    print("[DEBUG] get_balance_any_chain per_chain:", per_chain)
-    print("[DEBUG] address:", address)
-
-    return total, found, per_chain
-
-
-# ---------------- Kadindexer v1 (GraphQL) ----------------
-GQL_TX_QUERY = """
-query($search: String!, $limit: Int!) {
-  transactions(search: $search, limit: $limit) {
-    edges {
-      node {
-        creationTime
-      }
-    }
-  }
-}
-"""
-
-
-async def get_tx_count_24h(address: str, limit: int = 200) -> Optional[int]:
-    """
-    Count transactions in the last 24 hours via Kadindexer v1 GraphQL.
-    Respects KADINDEXER_BASE and optional KADINDEXER_API_KEY from .config.
-    Returns int or None on transport error.
-    """
-    base = KADINDEXER_BASE.rstrip("/")
-    headers = {"Content-Type": "application/json"}
+    # 2) Fallback to Kadindexer if API key provided
     if KADINDEXER_API_KEY:
-        headers["Authorization"] = f"Bearer {KADINDEXER_API_KEY}"
+        url = f"{KADINDEXER_BASE}account/{address}/balance"
+        headers = {"x-api-key": KADINDEXER_API_KEY}
+        try:
+            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    total = float(data.get("total", 0) or 0)
+                    per_chain = {int(k): float(v) for k, v in (data.get("per_chain") or {}).items()}
+                    found = next((c for c, v in per_chain.items() if v > 0), None)
+                    _balance_cache[address] = (now, total, found, per_chain)
+                    print("[get_balance_any_chain] kadindexer fallback total", total)
+                    return total, found, per_chain
+                else:
+                    print("[get_balance_any_chain] kadindexer status", resp.status_code, resp.text[:200])
+        except Exception as e:
+            print("[get_balance_any_chain] kadindexer error", repr(e))
+            traceback.print_exc()
 
-    payload = {
-        "query": GQL_TX_QUERY,
-        "variables": {"search": address, "limit": limit},
-    }
+    # 3) Nothing found
+    _balance_cache[address] = (now, 0.0, None, {})
+    return 0.0, None, {}
 
-    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=24)
+async def get_tx_count_24h(address: str) -> Optional[int]:
+    """
+    Try Kadindexer first (if available), else explorer. Handle 403 and JSON errors gracefully.
+    """
+    # Kadindexer preferred for tx counts
+    if KADINDEXER_API_KEY:
+        url = f"{KADINDEXER_BASE}account/{address}/txcount24h"
+        headers = {"x-api-key": KADINDEXER_API_KEY}
+        try:
+            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return int(data.get("txcount24h", 0))
+                else:
+                    print("[get_tx_count_24h] kadindexer status", resp.status_code, resp.text[:200])
+        except Exception as e:
+            print("[get_tx_count_24h] kadindexer error", repr(e))
+            traceback.print_exc()
 
+    # Fallback: public explorer (legacy). Some explorer endpoints may return non-JSON / 403.
+    url = f"{KADENA_EXPLORER_BASE}/transactions?search={address}&limit=200"
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(base, json=payload, headers=headers, timeout=API_TIMEOUT)
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            r = await client.get(url)
             if r.status_code != 200:
-                print("[get_tx_count_24h] HTTP", r.status_code, r.text[:300])
+                print(f"[get_tx_count_24h] explorer status {r.status_code} {r.text[:200]}")
                 return None
-
-            data = r.json()
-            edges = data.get("data", {}).get("transactions", {}).get("edges", []) or []
+            try:
+                data = r.json()
+            except Exception as e:
+                print("[get_tx_count_24h] explorer json error", repr(e))
+                return None
+            items = data.get("items", []) if isinstance(data, dict) else []
+            cutoff = dt.datetime.utcnow() - dt.timedelta(hours=24)
             cnt = 0
-            for e in edges:
-                ts = (e or {}).get("node", {}).get("creationTime")
-                if not ts:
+            for it in items:
+                ts = it.get("creationTime") or it.get("timestamp")
+                if ts is None:
                     continue
-                try:
-                    # ISO8601 Z → naive UTC
-                    dt_obj = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
-                    if dt_obj >= cutoff:
-                        cnt += 1
-                except Exception:
-                    continue
+                if isinstance(ts, str) and ts.isdigit():
+                    ts = int(ts)
+                if isinstance(ts, float):
+                    ts = int(ts)
+                if isinstance(ts, int):
+                    dt_obj = dt.datetime.utcfromtimestamp(ts)
+                else:
+                    try:
+                        dt_obj = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                    except Exception:
+                        continue
+                if dt_obj >= cutoff:
+                    cnt += 1
             return cnt
     except Exception as e:
-        print("[get_tx_count_24h] Error:", e)
+        print("[get_tx_count_24h] HTTP error", repr(e))
+        traceback.print_exc()
         return None
 
-
-# ---------------- Contract detector (stub) ----------------
 async def is_contract_address(address: str) -> Optional[bool]:
-    """
-    Stub for now (stateless). You can later upgrade by querying Pact for module
-    definitions tied to the address if Kadena exposes a suitable primitive.
-    """
+    # MVP: always False (stub). Could be extended to check registry via kadindexer.
     return False
