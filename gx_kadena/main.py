@@ -149,3 +149,34 @@ async def status():
         "stateless": True,
         "time": dt.datetime.utcnow().isoformat() + "Z"
     }
+
+# ---------- TRACTION ----------
+from datetime import datetime
+from fastapi import Request
+
+# In-memory counter (stateless session → auto reset on restart)
+TRACTION_COUNT = 0
+LAST_RESET_DATE = datetime.utcnow().date()
+
+@app.middleware("http")
+async def count_requests(request: Request, call_next):
+    global TRACTION_COUNT, LAST_RESET_DATE
+    response = await call_next(request)
+    # Reset daily
+    today = datetime.utcnow().date()
+    if today != LAST_RESET_DATE:
+        TRACTION_COUNT = 0
+        LAST_RESET_DATE = today
+    # Only count validation calls
+    if request.url.path.startswith("/validate/"):
+        TRACTION_COUNT += 1
+    return response
+
+@app.get("/traction", tags=["system"])
+async def traction():
+    """Return lightweight daily usage metric (resets daily)."""
+    return {
+        "date": datetime.utcnow().strftime("%Y-%m-%d"),
+        "total_validations_today": TRACTION_COUNT,
+        "stateless": True
+    }
