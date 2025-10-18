@@ -16,6 +16,7 @@ class ValidationResult(BaseModel):
     risk_score: int
     flags: List[str]
     duration_ms: int
+    traction: int = 0
     timestamp: dt.datetime = Field(default_factory=lambda: dt.datetime.utcnow())
 
 def is_kadena_address(addr: str) -> bool:
@@ -46,6 +47,10 @@ async def validate_address(address: str) -> ValidationResult:
 
     if not balances_per_chain:
         balances_per_chain = {}
+
+    # traction = number of chains with a positive balance (useful for frontend)
+    traction = len([v for v in balances_per_chain.values() if v and v > 0])
+
     balance = 0.0
     if chain_found is not None and chain_found in balances_per_chain:
         try:
@@ -53,7 +58,6 @@ async def validate_address(address: str) -> ValidationResult:
         except Exception:
             balance = 0.0
 
-    # debug: concise JSON-friendly log
     print("DEBUG ValidationResult:", {
         "address": address,
         "chain_found": chain_found,
@@ -65,6 +69,7 @@ async def validate_address(address: str) -> ValidationResult:
         "risk_score": score,
         "flags": flags,
         "duration_ms": dur,
+        "traction": traction,
     })
 
     return ValidationResult(
@@ -78,4 +83,5 @@ async def validate_address(address: str) -> ValidationResult:
         risk_score=score,
         flags=flags,
         duration_ms=dur,
+        traction=traction,
     )
