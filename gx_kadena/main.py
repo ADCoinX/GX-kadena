@@ -2,38 +2,51 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-import sys, datetime as dt
 from urllib.parse import unquote
+import datetime as dt
+import sys
 
+# Core modules
 from .validator import validate_address, ValidationResult
 from .rwa.assets import get_rwa_assets
 from .iso.pacs008 import xml_pacs008
 from .iso.camt053 import xml_camt053
 from .security_mw import get_cors_middleware, security_headers_mw
 from .logging_mw import logging_middleware
-from .metrics import metrics_mw, get_metrics
 
-app = FastAPI(title="GX-Kadena (MVP)", version="0.1.0")
+# ---------- APP CONFIG ----------
+app = FastAPI(
+    title="GX-Kadena (Stateless Edition)",
+    version="0.2.0",
+    description="ISO20022-ready, stateless validator for Kadena network (no DB, no cache, no session)."
+)
 
+# ---------- MIDDLEWARE ----------
 get_cors_middleware(app)
 app.middleware("http")(security_headers_mw)
 app.middleware("http")(logging_middleware)
-app.middleware("http")(metrics_mw)
 
-# ---------- DEBUG: log lokasi penting ----------
+# Add stateless compliance header
+@app.middleware("http")
+async def stateless_header(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Stateless-Mode"] = "true"
+    return response
+
+
+# ---------- DIRECTORY STRUCTURE ----------
 APP_FILE = Path(__file__).resolve()
-GX_DIR   = APP_FILE.parent                 # .../gx_kadena
-REPO_DIR = GX_DIR.parent                   # .../
-WEB_DIR  = REPO_DIR / "web"                # .../web (index.html + static/)
-LEGACY   = GX_DIR / "static"               # .../gx_kadena/static (kalau ada)
-print(f"[BOOT] __file__={APP_FILE}")
+GX_DIR   = APP_FILE.parent
+REPO_DIR = GX_DIR.parent
+WEB_DIR  = REPO_DIR / "web"
+LEGACY   = GX_DIR / "static"
+
 print(f"[BOOT] GX_DIR={GX_DIR}")
-print(f"[BOOT] REPO_DIR={REPO_DIR}")
-print(f"[BOOT] WEB_DIR exists? {WEB_DIR.exists()}  -> {WEB_DIR}")
-print(f"[BOOT] LEGACY exists? {LEGACY.exists()}    -> {LEGACY}")
+print(f"[BOOT] WEB_DIR exists? {WEB_DIR.exists()}")
+print(f"[BOOT] LEGACY exists? {LEGACY.exists()}")
 print(f"[BOOT] sys.path[0]={sys.path[0]}")
 
-# ---------- UI MOUNT (tanpa crash kalau folder tiada) ----------
+# ---------- UI MOUNT ----------
 MOUNTED = False
 if WEB_DIR.exists():
     app.mount("/app", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
@@ -42,13 +55,12 @@ elif LEGACY.exists():
     app.mount("/app", StaticFiles(directory=str(LEGACY), html=True), name="ui")
     MOUNTED = True
 else:
-    print("⚠️  UI folder not found. Will run API-only. (Tried /web and /gx_kadena/static)")
+    print("⚠️ UI folder not found. Running API-only mode.")
 
 @app.get("/", include_in_schema=False)
 def root_redirect():
     return RedirectResponse(url="/app/" if MOUNTED else "/docs")
 
-# Optional: favicon lookup di dua lokasi
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     for p in [WEB_DIR / "static" / "favicon.ico", LEGACY / "favicon.ico"]:
@@ -56,12 +68,12 @@ def favicon():
             return FileResponse(p)
     return HTMLResponse(status_code=204, content="")
 
-# ---------------- Health ----------------
+# ---------- HEALTH ----------
 @app.get("/health", tags=["system"])
 async def health():
-    return {"status": "ok", "ts": dt.datetime.utcnow().isoformat() + "Z"}
+    return {"status": "ok", "timestamp": dt.datetime.utcnow().isoformat() + "Z", "stateless": True}
 
-# --------------- Core -------------------
+# ---------- VALIDATOR CORE ----------
 @app.get("/validate/{address}", response_model=ValidationResult, tags=["validate"])
 async def validate(address: str):
     address = unquote(address)
@@ -74,52 +86,66 @@ async def validate(address: str):
 async def risk_endpoint(address: str):
     address = unquote(address)
     res = await validate_address(address)
-    return {"address": res.address, "risk_score": res.risk_score, "flags": res.flags}
+    return {"address": res.address, "risk_score": res.risk_score, "flags": res.flags, "stateless": True}
 
+# ---------- RWA ----------
 @app.get("/rwa/{address}", tags=["rwa"])
 async def rwa(address: str):
     address = unquote(address)
-    return get_rwa_assets(address)
+    rwa_blk = get_rwa_assets(address)
+    return {"address": address, "assets": rwa_blk, "stateless": True}
 
-# -------------- ISO 20022 ---------------
+# ---------- ISO 20022 EXPORT ----------
 @app.get("/iso/pacs008.xml", tags=["iso20022"])
 async def iso_pacs(address: str, reference_id: str = "GX-TEST-001",
                    amount: str = "0.00", ccy: str = "KDA"):
     address = unquote(address)
     res = await validate_address(address)
     rwa_blk = get_rwa_assets(address)
-    xml_bytes = xml_pacs008(address=res.address, ref_id=reference_id,
-                            amt=amount, ccy=ccy, risk=res.risk_score,
-                            rwa_block=rwa_blk)
-    return Response(content=xml_bytes, media_type="application/xml",
-                    headers={"Content-Disposition": f'attachment; filename="pacs008_{reference_id}.xml"'})
+    xml_bytes = xml_pacs008(
+        address=res.address,
+        ref_id=reference_id,
+        amt=amount,
+        ccy=ccy,
+        risk=res.risk_score,
+        rwa_block=rwa_blk
+    )
+    return Response(
+        content=xml_bytes,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="pacs008_{reference_id}.xml"',
+            "X-Stateless-Mode": "true"
+        }
+    )
 
 @app.get("/iso/camt053.xml", tags=["iso20022"])
 async def iso_camt(address: str):
     address = unquote(address)
     res = await validate_address(address)
     rwa_blk = get_rwa_assets(address)
-    xml_bytes = xml_camt053(address=res.address, balance=res.total_balance,
-                            risk=res.risk_score, rwa_block=rwa_blk)
-    return Response(content=xml_bytes, media_type="application/xml",
-                    headers={"Content-Disposition": f'attachment; filename="camt053_{res.address}.xml"'})
+    xml_bytes = xml_camt053(
+        address=res.address,
+        balance=res.total_balance,
+        risk=res.risk_score,
+        rwa_block=rwa_blk
+    )
+    return Response(
+        content=xml_bytes,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="camt053_{res.address}.xml"',
+            "X-Stateless-Mode": "true"
+        }
+    )
 
-# --------------- Metrics ----------------
-@app.get("/metrics", include_in_schema=False, tags=["system"])
-async def metrics():
-    content, content_type = get_metrics()
-    return Response(content, media_type=content_type)
-
-# --------------- Traction Endpoint ---------------
-@app.get("/traction", tags=["system"])
-async def traction():
-    """
-    Return the total request count for UI traction display.
-    """
-    from .metrics import REQ_COUNT
-    count = 0
-    for sample in REQ_COUNT.collect()[0].samples:
-        # Only count samples with .name ending in '_total' (Prometheus counter)
-        if sample.name.endswith("_total"):
-            count += sample.value
-    return {"total_requests": int(count)}
+# ---------- STATUS ----------
+@app.get("/status", tags=["system"])
+async def status():
+    return {
+        "service": "GX-Kadena (Stateless Edition)",
+        "version": "0.2.0",
+        "network": "mainnet01",
+        "stateless": True,
+        "time": dt.datetime.utcnow().isoformat() + "Z"
+    }
